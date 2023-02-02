@@ -1,0 +1,3 @@
+# chidb
+
+In-progress implementation of UChicago χ-Projects chidb ([Link to UChicago's main page for chidb](http://chi.cs.uchicago.edu/chidb/index.html)) in the C programming language. B-Tree for table structures and B+Tree for index structures, table and index creation, insertion, and query, translation between disk and in-memory representations of pages (nodes in a tree) and their cells, paging mechanism, primitive database instructions with cursor mechanism. Code generation and query optimization coming soon...
