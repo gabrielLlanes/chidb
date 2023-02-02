@@ -2,3 +2,5 @@ chidb - A didactic RDBMS
 =====================================
 
 The chidb documentation is available at http://chi.cs.uchicago.edu/
+
+In-progress implementation of UChicago χ-Projects chidb in the C programming language. B-Tree for table structures and B+Tree for index structures, table and index creation, insertion, and query, translation between disk and in-memory representations of pages (nodes in a tree) and their cells, paging mechanism, primitive database instructions with cursor mechanism. Code generation and query optimization coming soon...
