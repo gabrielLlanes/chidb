@@ -48,11 +48,22 @@ static int check_cols_exist_expr(chidb_stmt *stmt, char *table_name, Expression_
 
 static int check_cols_exist_strlist(chidb_stmt *stmt, char *table_name, StrList_t *cols, int nCols);
 
+static int chidb_stmt_codegen_simple_select(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage);
+
+static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage);
+
+static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t *sql_stmt);
+
+static int chidb_stmt_codegen_simple_create_table(chidb_stmt *stmt, chisql_statement_t *sql_stmt);
+
+static int chidb_stmt_codegen_create_index(chidb_stmt *stmt, chisql_statement_t *sql_stmt);
+
 static int chidb_stmt_validate_schema_exists(chidb_stmt *stmt, char *schema_name, int *root_npage)
 {
   npage_t _root_npage = schema_root_page(stmt->db, schema_name);
   if (_root_npage == 0)
   {
+    chilog(CRITICAL, "INVALID DNE");
     return CHIDB_EINVALIDSQL;
   }
   *root_npage = _root_npage;
@@ -180,29 +191,27 @@ static int chidb_stmt_validate_simple_select(chidb_stmt *stmt, chisql_statement_
   enum data_type cmp_type = sra_select.cond->cond.comp.expr2->expr.term.val->t;
   if (col_type != cmp_type)
   {
-    return CHIDB_EINVALIDSQL;
+    // support comparison of a string to a char
+    if (cmp_type == TYPE_CHAR || col_type == TYPE_TEXT)
+    {
+      select->project.sra->select.cond->cond.comp.expr2->expr.term.val->t = TYPE_TEXT;
+      char *str_from_char = malloc(2);
+      str_from_char[0] = select->project.sra->select.cond->cond.comp.expr2->expr.term.val->val.cval;
+      str_from_char[1] = '\0';
+      select->project.sra->select.cond->cond.comp.expr2->expr.term.val->val.strval = str_from_char;
+    }
+    else
+    {
+      chilog(CRITICAL, "Type mismatch!, col type %d vs literal type %d", col_type, cmp_type);
+      return CHIDB_EINVALIDSQL;
+    }
   }
   return CHIDB_OK;
 }
 
-// static int chidb_stmt_validate(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int *nCols, int *root_npage)
-// {
-//   if (sql_stmt->type == STMT_SELECT && sql_stmt->stmt.select->t == SRA_PROJECT &&
-//       sql_stmt->stmt.select->project.sra->t == SRA_SELECT &&
-//       sql_stmt->stmt.select->project.sra->select.sra->t == SRA_TABLE)
-//   {
-//     if(chidb_stmt_validate_project_cols(stmt, sql_stmt, nCols, ))
-//   }
-// }
-
-static int chidb_stmt_codegen_simple_select(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage);
-
-static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage);
-
-static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t *sql_stmt);
-
 int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
 {
+  load_schema(stmt->db);
   if (stmt->ops == NULL)
   {
     chilog(DEBUG, "null ops: initalizing.");
@@ -256,6 +265,15 @@ int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
   else if (sql_stmt->type == STMT_INSERT)
   {
     return chidb_stmt_codegen_simple_insert(stmt, sql_stmt);
+  }
+  else if (sql_stmt->type == STMT_CREATE && sql_stmt->stmt.create->t == CREATE_TABLE)
+  {
+    return chidb_stmt_codegen_simple_create_table(stmt, sql_stmt);
+  }
+  else if (sql_stmt->type == STMT_CREATE && sql_stmt->stmt.create->t == CREATE_INDEX)
+  {
+    chilog(DEBUG, "Creating index");
+    return chidb_stmt_codegen_create_index(stmt, sql_stmt);
   }
   int opnum = 0;
   int nOps;
@@ -390,6 +408,7 @@ static int chidb_stmt_codegen_simple_select(chidb_stmt *stmt, chisql_statement_t
   chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
   chidb_stmt_set_op(stmt, &op_halt, 3 + nCols + 3);
   stmt->pc = 0;
+  chilog(DEBUG, "Done generating code for %s", sql_stmt->text);
   return CHIDB_OK;
 }
 
@@ -415,6 +434,10 @@ static enum opcode simple_cmp_condtype_opcode(enum CondType condtype)
   {
     return Op_Lt;
   }
+}
+
+static int chidb_stmt_codegen_range_query_indexed(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols)
+{
 }
 
 static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage)
@@ -477,7 +500,7 @@ static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_state
   }
   stmt->nCols = nCols;
   stmt->nRR = nCols;
-  chilog(INFO, "%d cols", nCols);
+  chilog(DEBUG, "%d cols", nCols);
   chidb_dbm_op_t op_cmp = {simple_cmp_condtype_opcode(sra_select.cond->t), 1, 7, 2, NULL};
   chidb_stmt_set_op(stmt, &op_cmp, 5);
   chidb_dbm_op_t op_unconditional_jump = {Op_Eq, 1, 7 + nCols + 1, 1, NULL};
@@ -610,7 +633,7 @@ static int simple_insert_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt,
   int nRecords = nValues / nCols;
   for (int i = 0, curr_addr_start = addr_start; i < nRecords; i++, curr_addr_start += (nCols + 3))
   {
-    chilog(INFO, "Generating code for record %d / %d, pkey at column %d", i + 1, nRecords, pkey_n);
+    chilog(DEBUG, "Generating code for record %d / %d, pkey at column %d", i + 1, nRecords, pkey_n);
     simple_insert_codegen_record(stmt, curr_values, curr_addr_start, nCols, base_reg, pkey_n);
     for (int j = 0; j < nCols; j++)
     {
@@ -622,21 +645,22 @@ static int simple_insert_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt,
 
 static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
 {
+  chilog(DEBUG, "Code gen for simple insert.");
   Insert_t *insert = sql_stmt->stmt.insert;
   ChidbSchema schema;
   get_schema(stmt->db, insert->table_name, &schema);
-  if (insert->col_names == NULL)
-  {
-    insert_set_all_cols(insert, &schema);
-  }
   int root_npage;
-  int nCols;
-  int pkey_n;
-  int nValues;
   if (chidb_stmt_validate_schema_exists(stmt, insert->table_name, &root_npage) != CHIDB_OK)
   {
     return CHIDB_EINVALIDSQL;
   }
+  if (insert->col_names == NULL)
+  {
+    insert_set_all_cols(insert, &schema);
+  }
+  int nCols;
+  int pkey_n;
+  int nValues;
   if (chidb_stmt_validate_insert_cols(stmt, sql_stmt, &nCols, &pkey_n) != CHIDB_OK)
   {
     return CHIDB_EINVALIDSQL;
@@ -666,9 +690,139 @@ static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t
   int end_addr = 3 + ((nCols + 3) * nRecords);
   chidb_dbm_op_t op_close = {Op_Close, 0, 0, 0, NULL};
   chidb_stmt_set_op(stmt, &op_close, end_addr);
-  chilog(INFO, "Setting close / halt in addr %d", end_addr);
+  chilog(DEBUG, "Setting close / halt in addr %d", end_addr);
   chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
   chidb_stmt_set_op(stmt, &op_halt, end_addr + 1);
+  stmt->pc = 0;
+  return CHIDB_OK;
+}
+
+static int chidb_stmt_validate_simple_create_table(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int *nCols)
+{
+  Create_t *create = sql_stmt->stmt.create;
+  Column_t *cols = create->table->columns;
+  Column_t *col = cols;
+  if (schema_exists(stmt->db, create->table->name))
+  {
+    chilog(CRITICAL, "Table %s exists already! Aborting.", create->table->name);
+    return CHIDB_EINVALIDSQL;
+  }
+  int _nCols = 0;
+  while (col != NULL)
+  {
+    if (_nCols == 0)
+    {
+      if (!(col->type == TYPE_INT && col->constraints->t == CONS_PRIMARY_KEY))
+      {
+        chilog(CRITICAL, "First column %s needs to be integer and primary key!", col->name);
+        return CHIDB_EINVALIDSQL;
+      }
+    }
+    else
+    {
+      if (!(col->constraints == NULL && (col->type == TYPE_INT || col->type == TYPE_TEXT)))
+      {
+        chilog(CRITICAL, "All other columns (%s) besides primary key must have no constraints and be either text or integer!", col->name);
+        return CHIDB_EINVALIDSQL;
+      }
+    }
+    _nCols++;
+    col = col->next;
+  }
+  *nCols = _nCols;
+  return CHIDB_OK;
+}
+
+static int chidb_stmt_codegen_simple_create_table(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
+{
+  // Create_t *create = sql_stmt->stmt.create;
+  Table_t *table = sql_stmt->stmt.create->table;
+  int nCols;
+  if (chidb_stmt_validate_simple_create_table(stmt, sql_stmt, &nCols) != CHIDB_OK)
+  {
+    chilog(CRITICAL, "INVALIDATED");
+    return CHIDB_EINVALIDSQL;
+  }
+  chidb_dbm_op_t op_int = {Op_Integer, 1, 0, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_int, 0);
+  chidb_dbm_op_t op_openWrite = {Op_OpenWrite, 0, 0, 5, NULL};
+  chidb_stmt_set_op(stmt, &op_openWrite, 1);
+  chidb_dbm_op_t op_string_schematype = {Op_String, 5, 1, 0, "table"};
+  chidb_stmt_set_op(stmt, &op_string_schematype, 2);
+  chidb_dbm_op_t op_string_schemaname = {Op_String, strlen(table->name), 2, 0, table->name};
+  chidb_stmt_set_op(stmt, &op_string_schemaname, 3);
+  chidb_dbm_op_t op_string_associatedname = {Op_String, strlen(table->name), 3, 0, table->name};
+  chidb_stmt_set_op(stmt, &op_string_associatedname, 4);
+  chidb_dbm_op_t op_create_root = {Op_CreateTable, 4, 0, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_create_root, 5);
+  chidb_dbm_op_t op_string_sql = {Op_String, strlen(sql_stmt->text), 5, 0, sql_stmt->text};
+  chidb_stmt_set_op(stmt, &op_string_sql, 6);
+  chidb_dbm_op_t op_record = {Op_MakeRecord, 1, 5, 6, NULL};
+  chidb_stmt_set_op(stmt, &op_record, 7);
+  chidb_dbm_op_t op_int_key = {Op_Integer, stmt->db->nSchema + 1, 7, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_int_key, 8);
+  chidb_dbm_op_t op_insert = {Op_Insert, 0, 6, 7, NULL};
+  chidb_stmt_set_op(stmt, &op_insert, 9);
+  chidb_dbm_op_t op_close = {Op_Close, 0, 0, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_close, 10);
+  chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_halt, 11);
+  stmt->pc = 0;
+  return CHIDB_OK;
+}
+
+static int chidb_stmt_codegen_create_index(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
+{
+  Index_t *index = sql_stmt->stmt.create->index;
+  if (schema_exists(stmt->db, index->name))
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  if (!schema_exists(stmt->db, index->table_name))
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  ChidbSchema table_schema;
+  get_schema(stmt->db, index->table_name, &table_schema);
+  int col_n = table_col_n(stmt->db, index->table_name, index->column_name);
+  if (col_n == -1)
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  int j = table_col_type(stmt->db, index->table_name, index->column_name);
+  if (j != TYPE_INT)
+  {
+    chilog(CRITICAL, "Column %s of table %s is of type %d, but indices can only be created on integer columns!",
+           index->column_name, index->table_name, j);
+    return CHIDB_EINVALIDSQL;
+  }
+  chilog(DEBUG, "Codegen for create index %s on %s %s, col type %d and col number %d",
+         index->name, index->table_name, index->column_name, j, col_n);
+  chidb_dbm_op_t op_int = {Op_Integer, table_schema.root_npage, 0, 0, NULL};
+  chidb_dbm_op_t op_openReadTable = {Op_OpenRead, 0, 0, table_ncols(stmt->db, index->table_name), NULL};
+  chidb_dbm_op_t op_createIndex = {Op_CreateIndex, 1, 0, 0, NULL};
+  chidb_dbm_op_t op_openWriteIndex = {Op_OpenWrite, 1, 1, 0, NULL};
+  chidb_dbm_op_t op_rewindTable = {Op_Rewind, 0, 9, 0, NULL};
+  chidb_dbm_op_t op_key = {Op_Key, 0, 3, 0, NULL};
+  chidb_dbm_op_t op_col = {Op_Column, 0, col_n, 2, NULL};
+  chidb_dbm_op_t op_insertIndex = {Op_IdxInsert, 1, 2, 3, NULL};
+  chidb_dbm_op_t op_next = {Op_Next, 0, 5, 0, NULL};
+  chidb_dbm_op_t op_close0 = {Op_Close, 0, 0, 0, NULL};
+  chidb_dbm_op_t op_close1 = {Op_Close, 1, 0, 0, NULL};
+  chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
+
+  chidb_stmt_set_op(stmt, &op_int, 0);
+  chidb_stmt_set_op(stmt, &op_openReadTable, 1);
+  chidb_stmt_set_op(stmt, &op_createIndex, 2);
+  chidb_stmt_set_op(stmt, &op_openWriteIndex, 3);
+  chidb_stmt_set_op(stmt, &op_rewindTable, 4);
+  chidb_stmt_set_op(stmt, &op_key, 5);
+  chidb_stmt_set_op(stmt, &op_col, 6);
+  chidb_stmt_set_op(stmt, &op_insertIndex, 7);
+  chidb_stmt_set_op(stmt, &op_next, 8);
+  chidb_stmt_set_op(stmt, &op_close0, 9);
+  chidb_stmt_set_op(stmt, &op_close1, 10);
+  chidb_stmt_set_op(stmt, &op_halt, 11);
   stmt->pc = 0;
   return CHIDB_OK;
 }

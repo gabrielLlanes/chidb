@@ -101,4 +101,6 @@ struct chidb
   int nSchema;
 };
 
+void schema_free(ChidbSchema *schema);
+
 #endif /*CHIDBINT_H_*/

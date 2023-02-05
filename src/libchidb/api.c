@@ -62,40 +62,51 @@ static int realloc_schema(chidb *db, int n)
 {
 	if (n > db->nSchema)
 	{
-		chilog(INFO, "Reallocating schema: %d.", n);
+		chilog(DEBUG, "Reallocating schema: %d.", n);
 		db->schema_list = realloc(db->schema_list, n * sizeof(ChidbSchema));
 	}
 	return CHIDB_OK;
 }
 
-int chidb_open(const char *file, chidb **db)
+void schema_free(ChidbSchema *schema)
 {
-	chilog_setloglevel(WARNING);
-	*db = malloc(sizeof(chidb));
-	if (*db == NULL)
-		return CHIDB_ENOMEM;
-	chidb_Btree_open(file, *db, &(*db)->bt);
+	if (schema->type == CREATE_TABLE)
+	{
+		Table_free(schema->table);
+	}
+	else if (schema->type == CREATE_INDEX)
+	{
+		Index_free(schema->index);
+	}
+	free(schema->sql); // REMOVE IF CAUSES BAD BEHAVIOR
+}
 
-	/* Additional initialization code goes here */
+int load_schema(chidb *db)
+{
+	if (db->nSchema > 0 && db->schema_list != NULL)
+	{
+		chilog(DEBUG, "Freeing existing %d schema", db->nSchema);
+		for (int i = 0; i < db->nSchema; i++)
+		{
+			schema_free(db->schema_list + i);
+		}
+	}
 	// load database schema into the chidb struct.
-	(*db)->schema_list = malloc(sizeof(ChidbSchema));
-	(*db)->nSchema = 0;
+	db->schema_list = malloc(sizeof(ChidbSchema));
+	db->nSchema = 0;
 	chidb_dbm_cursor_t *cursor;
-	chidb_Cursor_open(&cursor, CURSOR_READ, (*db)->bt, 1, 5);
-	chilog(INFO, "Cursor: %d type, key %d", cursor->tree_type, cursor->curr_key);
+	chidb_Cursor_open(&cursor, CURSOR_READ, db->bt, 1, 5);
 	chidb_Cursor_rewind(cursor);
 	int nSchema = 0;
 	if (!(cursor->nNodes == 1 && cursor->node_entries[0].node->n_cells == 0))
 	{
 		do
 		{
-			BTreeCell *cell;
+			BTreeCell cell;
 			chidb_Cursor_get(cursor, &cell);
-			// chilog(INFO, "GOT CELL type %d, KEY %d", cell->type, cell->key);
 			uint32_t type;
 			uint32_t offset;
-			uint8_t *data = cell->fields.tableLeaf.data;
-
+			uint8_t *data = cell.fields.tableLeaf.data;
 			// get column 4, which holds the sql statement
 			getRecordCol(data, 4, &type, &offset);
 			uint32_t len = (type - 13) / 2;
@@ -103,7 +114,6 @@ int chidb_open(const char *file, chidb **db)
 			memcpy(sql, data + offset, len);
 			sql[len] = '\0';
 			chisql_statement_t *stmt;
-
 			chisql_parser(sql, &stmt);
 			Create_t *create = stmt->stmt.create;
 			ChidbSchema curr_schema;
@@ -118,8 +128,8 @@ int chidb_open(const char *file, chidb **db)
 				curr_schema.index = create->index;
 				curr_schema.name = create->index->name;
 				curr_schema.assoc_table_name = create->index->table_name;
-				chilog(INFO, "SCHEMA %d, INDEX %s: root %d, assoc %s, sql %s",
-							 nSchema, curr_schema.name, curr_schema.root_npage, curr_schema.assoc_table_name, curr_schema.sql);
+				chilog(DEBUG, "key %d SCHEMA %d, INDEX %s: root %d, assoc %s, sql %s",
+							 cell.key, nSchema, curr_schema.name, curr_schema.root_npage, curr_schema.assoc_table_name, curr_schema.sql);
 			}
 			else if (curr_schema.type == CREATE_TABLE)
 			{
@@ -128,39 +138,41 @@ int chidb_open(const char *file, chidb **db)
 				curr_schema.assoc_table_name = create->table->name;
 
 				// debugging logging
-				chilog(INFO, "SCHEMA %d, TABLE %s: root %d, assoc %s, sql %s",
-							 nSchema, curr_schema.name, curr_schema.root_npage, curr_schema.assoc_table_name, curr_schema.sql);
+				chilog(DEBUG, "key %d SCHEMA %d, TABLE %s: root %d, assoc %s, sql %s",
+							 cell.key, nSchema, curr_schema.name, curr_schema.root_npage, curr_schema.assoc_table_name, curr_schema.sql);
 				Column_t *currcol = curr_schema.table->columns;
 				while (currcol != NULL)
 				{
 					currcol = currcol->next;
 				}
 			}
-			realloc_schema(*db, nSchema + 1);
-			(*db)->schema_list[nSchema] = curr_schema;
-			(*db)->nSchema += 1;
+			realloc_schema(db, nSchema + 1);
+			db->schema_list[nSchema] = curr_schema;
+			db->nSchema += 1;
 			nSchema += 1;
 		} while (chidb_Cursor_next(cursor) != CHIDB_CURSOR_LAST_ENTRY);
 	}
 	else
 	{
-		chilog(WARNING, "Empty Btree!");
+		chilog(CRITICAL, "Empty Btree!");
 	}
-	// chilog(INFO, "Exists: numbers %d, idxNumbers %d, ahaha %d",
-	// 			 schema_exists(*db, "numbers"), schema_exists(*db, "idxNumbers"), schema_exists(*db, "ahaha"));
-	// chilog(INFO, "Root pages: numbers %d, idxNumbers %d, ahaha %d",
-	// 			 schema_root_page(*db, "numbers"), schema_root_page(*db, "idxNumbers"), schema_root_page(*db, "ahaha"));
-	// chilog(INFO, "Cols exist: code %d, textcode %d, altcode %d, ahaha %d",
-	// 			 table_col_exists(*db, "numbers", "code"),
-	// 			 table_col_exists(*db, "numbers", "textcode"),
-	// 			 table_col_exists(*db, "numbers", "altcode"),
-	// 			 table_col_exists(*db, "numbers", "ahaha"));
-	// chilog(INFO, "Cols types: code %d, textcode %d, altcode %d, ahaha %d",
-	// 			 table_col_type(*db, "numbers", "code"),
-	// 			 table_col_type(*db, "numbers", "textcode"),
-	// 			 table_col_type(*db, "numbers", "altcode"),
-	// 			 table_col_type(*db, "numbers", "ahaha"));
+	chidb_Cursor_freeCursor(cursor);
 	return CHIDB_OK;
+}
+
+int chidb_open(const char *file, chidb **db)
+{
+	chilog_setloglevel(DEBUG);
+	*db = malloc(sizeof(chidb));
+	if (*db == NULL)
+		return CHIDB_ENOMEM;
+	chidb_Btree_open(file, *db, &(*db)->bt);
+
+	/* Additional initialization code goes here */
+	// load database schema into the chidb struct.
+	(*db)->nSchema = 0;
+	(*db)->schema_list = NULL;
+	return load_schema(*db);
 }
 
 int chidb_close(chidb *db)

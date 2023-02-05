@@ -151,7 +151,7 @@ int chidb_stmt_set_op(chidb_stmt *stmt, chidb_dbm_op_t *op, uint32_t pos)
      * If not, reallocate the instruction array */
     if (pos >= stmt->nOps)
     {
-        chilog(INFO, "Realloc needed %d", stmt->nOps);
+        chilog(DEBUG, "Realloc needed %d", stmt->nOps);
         int rc = realloc_ops(stmt, pos + 1);
         if (rc != CHIDB_OK)
             return rc;

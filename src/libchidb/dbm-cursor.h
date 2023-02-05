@@ -49,8 +49,6 @@
 #define CHIDB_CURSOR_FIRST_ENTRY 3
 #define CHIDB_CURSOR_KEY_NOT_FOUND 4
 
-// #define CHIDB_CURSOR_NODE_ENTRY
-
 typedef enum chidb_dbm_cursor_type
 {
     CURSOR_UNSPECIFIED,
@@ -63,13 +61,6 @@ typedef enum chidb_dbm_cursor_tree_type
     TABLE_CURSOR,
     INDEX_CURSOR
 } chidb_dbm_cursor_tree_type;
-
-// typedef enum chidb_dbm_cursor_node_entry_type
-// {
-//     LEFTMOST,
-//     RIGHT_PAGE,
-//     MIDDLE
-// } cursor_node_entry_type;
 
 typedef struct chidbm_dbm_cursor_node_entry
 {
@@ -110,16 +101,9 @@ int chidb_Cursor_setPathNode(chidb_dbm_cursor_t *cursor, npage_t page_n, ncell_t
 
 int chidb_Cursor_rewind(chidb_dbm_cursor_t *cursor);
 
-// int chidb_Cursor_rewindTable(chidb_dbm_cursor_t *cursor);
-
-// int chidb_Cursor_rewindIndex(chidb_dbm_cursor_t *cursor);
-
-// int chidb_Cursor_next(chidb_dbm_cursor_t *cursor);
-int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell **cell);
+int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell *cell);
 
 int chidb_Cursor_next(chidb_dbm_cursor_t *cursor);
-
-// int chidb_Cursor_indexNext(chidb_dbm_cursor_t *cursor);
 
 int chidb_Cursor_prev(chidb_dbm_cursor_t *cursor);
 

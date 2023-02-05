@@ -307,46 +307,44 @@ int counting = 0;
 int chidb_Btree_getNodeByPage(BTree *bt, npage_t npage, BTreeNode **btn)
 {
     /* Your code goes here */
-    BTreeNode *bTreeNode = (BTreeNode *)malloc(sizeof(BTreeNode));
+    BTreeNode *_btn = (BTreeNode *)malloc(sizeof(BTreeNode));
     MemPage *page;
     int try_read_page = chidb_Pager_readPage(bt->pager, npage, &page);
     if (try_read_page == CHIDB_EPAGENO || try_read_page == CHIDB_EIO || try_read_page == CHIDB_ENOMEM)
     {
         return try_read_page;
     }
-    bTreeNode->page = page;
+    _btn->page = page;
     uint8_t *data = page->data;
     if (npage == 1)
     {
         // the page header of page 1 is 100 bytes from the start of the page, as the first 100 bytes are the file header.
         data += 100;
     }
-    bTreeNode->type = *data;
+    _btn->type = *data;
     data += 1;
-    bTreeNode->free_offset = get2byte(data);
-    chilog(DEBUG, "%d free offset", bTreeNode->free_offset);
+    _btn->free_offset = get2byte(data);
     data += 2;
-    bTreeNode->n_cells = get2byte(data);
-    chilog(DEBUG, "%d cells", bTreeNode->n_cells);
+    _btn->n_cells = get2byte(data);
     data += 2;
-    bTreeNode->cells_offset = get2byte(data);
-    chilog(DEBUG, "%d cells offset", bTreeNode->cells_offset);
+    _btn->cells_offset = get2byte(data);
     data += 2;
     data += 1;
-    uint8_t type = bTreeNode->type;
-    chilog(DEBUG, "%d cell type", type);
+    uint8_t type = _btn->type;
+    chilog(DEBUG, "Btree %d, %d free offset, %d cells, %d cells offset %d cell type",
+           npage, _btn->free_offset, _btn->n_cells, _btn->cells_offset, type);
     // 0x05: internal table page, 0x02: internal index page
     if (type == PGTYPE_INDEX_INTERNAL || type == PGTYPE_TABLE_INTERNAL)
     {
-        bTreeNode->right_page = get4byte(data);
+        _btn->right_page = get4byte(data);
         data += 4;
-        bTreeNode->celloffset_array = data;
+        _btn->celloffset_array = data;
     }
     else if (type == PGTYPE_INDEX_LEAF || type == PGTYPE_TABLE_LEAF)
     {
-        bTreeNode->celloffset_array = data;
+        _btn->celloffset_array = data;
     }
-    *btn = bTreeNode;
+    *btn = _btn;
     return CHIDB_OK;
 }
 
@@ -858,7 +856,6 @@ int chidb_Btree_insertInTable(BTree *bt, npage_t nroot, chidb_key_t key, uint8_t
 int chidb_Btree_insertInIndex(BTree *bt, npage_t nroot, chidb_key_t keyIdx, chidb_key_t keyPk)
 {
     /* Your code goes here */
-    chilog_setloglevel(CRITICAL);
     chilog(DEBUG, "Entering chidb_Btree_insertInIndex for insertion of key %d into page %d", keyIdx, nroot);
     BTreeCell btc;
     btc.key = keyIdx;
@@ -942,7 +939,7 @@ int chidb_Btree_insert(BTree *bt, npage_t nroot, BTreeCell *btc)
     }
     if (!node_has_space(root_node, btc))
     {
-        chilog(DEBUG, "ROOT, PAGE %d OUT OF SPACE", nroot);
+        chilog(INFO, "ROOT, PAGE %d OUT OF SPACE", nroot);
         npage_t new_root_n;
         BTreeNode *new_root_node;
         uint8_t new_root_type = btc->type == PGTYPE_TABLE_LEAF ? PGTYPE_TABLE_INTERNAL : PGTYPE_INDEX_INTERNAL;
@@ -1086,6 +1083,8 @@ int chidb_Btree_insertNonFull(BTree *bt, npage_t npage, BTreeCell *btc)
     {
         return CHIDB_ECORRUPT;
     }
+    chilog(CRITICAL, "Invalid node type %d!", btn->type);
+    return CHIDB_ECORRUPT;
 }
 
 /* Split a B-Tree node
@@ -1132,7 +1131,8 @@ int chidb_Btree_split(BTree *bt, npage_t npage_parent, npage_t npage_child, ncel
     {
         return try_new_node;
     }
-    chilog(DEBUG, "SPLIT PAGE %d WITH PARENT %d, NEW PAGE IS %d", npage_child, npage_parent, new_page_n);
+    chilog(INFO, "SPLIT PAGE %d containing %d cells WITH PARENT %d, NEW PAGE IS %d",
+           npage_child, child_node->n_cells, npage_parent, new_page_n);
     BTreeNode *new_node;
     int try_get_new_node = chidb_Btree_getNodeByPage(bt, new_page_n, &new_node);
     if (try_get_new_node != CHIDB_OK)

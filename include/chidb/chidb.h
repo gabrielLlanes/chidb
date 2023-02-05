@@ -181,4 +181,6 @@ const char *chidb_column_text(chidb_stmt *stmt, int col);
  */
 int chidb_close(chidb *db);
 
+int load_schema(chidb *db);
+
 #endif /*CHIDB_H_*/

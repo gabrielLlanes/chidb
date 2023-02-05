@@ -106,13 +106,14 @@ int chidb_Cursor_rewindNode(chidb_dbm_cursor_t *cursor, npage_t npage, int index
   BTreeNode *btn;
   BTreeCell curr_cell;
   chidb_Btree_getNodeByPage(cursor->bt, npage, &btn);
+  chidb_Cursor_setPathNode(cursor, npage, 0, index);
+  cursor->nNodes = index + 1;
   if (btn->n_cells == 0)
   {
     chilog(WARNING, "Cursor: Empty B Tree!");
+    return CHIDB_CURSOR_EMPTY_BTREE;
   }
   chidb_Btree_getCell(btn, 0, &curr_cell);
-  chidb_Cursor_setPathNode(cursor, npage, 0, index);
-  cursor->nNodes = index + 1;
   if (btn->type == PGTYPE_TABLE_LEAF || btn->type == PGTYPE_INDEX_LEAF)
   {
     cursor->curr_key = curr_cell.key;
@@ -155,7 +156,7 @@ int chidb_Cursor_rewind(chidb_dbm_cursor_t *cursor)
   chidb_Cursor_rewindNode(cursor, cursor->root_page_n, 0);
 }
 
-int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell **cell)
+int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell *cell)
 {
   BTreeCell _cell;
   chidb_key_t key = cursor->curr_key;
@@ -169,7 +170,7 @@ int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell **cell)
       break;
     }
   }
-  *cell = &_cell;
+  *cell = _cell;
   return CHIDB_OK;
 }
 
@@ -178,7 +179,7 @@ int chidb_Cursor_tableNextHelper(chidb_dbm_cursor_t *cursor, int cursor_node_n)
   cursor_node_entry *entry = cursor->node_entries + cursor_node_n;
   BTreeNode *btn = entry->node;
   BTreeCell cell;
-  chilog(INFO, "%d cells, page %d, entry ncell %d", btn->n_cells, btn->page->npage, entry->ncell);
+  chilog(DEBUG, "%d cells, page %d, entry ncell %d", btn->n_cells, btn->page->npage, entry->ncell);
   if (btn->type == PGTYPE_TABLE_LEAF || btn->type == PGTYPE_INDEX_LEAF)
   {
     if (entry->ncell == btn->n_cells - 1 || btn->n_cells == 0 && cursor_node_n == 0)
@@ -502,8 +503,6 @@ int chidb_Cursor_goToPosition(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 
 int chidb_Cursor_seekGt(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 {
-  uint8_t *data;
-  uint16_t size;
   chidb_Cursor_goToPosition(cursor, key);
   if (key >= cursor->curr_key)
   {
@@ -518,8 +517,6 @@ int chidb_Cursor_seekGt(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 
 int chidb_Cursor_seekGte(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 {
-  uint8_t *data;
-  uint16_t size;
   chidb_Cursor_goToPosition(cursor, key);
   if (key > cursor->curr_key)
   {
@@ -534,8 +531,6 @@ int chidb_Cursor_seekGte(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 
 int chidb_Cursor_seekLt(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 {
-  uint8_t *data;
-  uint16_t size;
   chidb_Cursor_goToPosition(cursor, key);
   if (key <= cursor->curr_key)
   {
@@ -550,8 +545,6 @@ int chidb_Cursor_seekLt(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 
 int chidb_Cursor_seekLte(chidb_dbm_cursor_t *cursor, chidb_key_t key)
 {
-  uint8_t *data;
-  uint16_t size;
   chidb_Cursor_goToPosition(cursor, key);
   if (key < cursor->curr_key)
   {

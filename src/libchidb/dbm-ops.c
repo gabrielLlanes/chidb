@@ -125,9 +125,20 @@ int chidb_dbm_op_Rewind(chidb_stmt *stmt, chidb_dbm_op_t *op)
 {
     /* Your code goes here */
     chidb_dbm_cursor_t *cursor = stmt->cursors + op->p1;
-    return chidb_Cursor_rewind(cursor);
-    // while ()
-    //     return CHIDB_OK;
+    int try_rewind = chidb_Cursor_rewind(cursor);
+    if (try_rewind == CHIDB_OK)
+    {
+        return CHIDB_OK;
+    }
+    else if (try_rewind == CHIDB_CURSOR_EMPTY_BTREE)
+    {
+        stmt->pc = op->p2;
+        return CHIDB_OK;
+    }
+    else
+    {
+        return try_rewind;
+    }
 }
 
 int chidb_dbm_op_Next(chidb_stmt *stmt, chidb_dbm_op_t *op)
@@ -137,6 +148,7 @@ int chidb_dbm_op_Next(chidb_stmt *stmt, chidb_dbm_op_t *op)
     int try_next = chidb_Cursor_next(cursor);
     if (try_next == CHIDB_CURSOR_LAST_ENTRY)
     {
+        chilog(INFO, "Cursor %d at end, doing nothing", op->p1);
     }
     else
     {
@@ -261,9 +273,9 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         chilog(WARNING, "col_n %d col # %d", cursor->col_n, op->p2);
         return CHIDB_ECANTOPEN;
     }
-    BTreeCell *cell;
+    BTreeCell cell;
     chidb_Cursor_get(cursor, &cell);
-    uint8_t *data = cell->fields.tableLeaf.data;
+    uint8_t *data = cell.fields.tableLeaf.data;
     uint8_t *ptr = data;
     uint32_t type;
     uint32_t offset_to_col = 0;
@@ -319,6 +331,7 @@ int chidb_dbm_op_Key(chidb_stmt *stmt, chidb_dbm_op_t *op)
         chidb_Btree_getCell(btn, i, &cell);
         if (cell.key == cursor->curr_key)
         {
+            chilog(DEBUG, "Op_Key: Found key %d", cell.key);
             break;
         }
     }
@@ -471,13 +484,6 @@ int chidb_dbm_op_MakeRecord(chidb_stmt *stmt, chidb_dbm_op_t *op)
     return CHIDB_OK;
 }
 
-static int logRecord(int nCols)
-{
-    // for (int i = 0; i < nCols) {
-
-    // }
-}
-
 int chidb_dbm_op_Insert(chidb_stmt *stmt, chidb_dbm_op_t *op)
 {
     /* Your code goes here */
@@ -485,11 +491,11 @@ int chidb_dbm_op_Insert(chidb_stmt *stmt, chidb_dbm_op_t *op)
     chidb_key_t key = cursor->curr_key;
     chidb_dbm_register_t *r1 = stmt->reg + op->p2;
     chidb_dbm_register_t *r2 = stmt->reg + op->p3;
-    chilog(DEBUG, "Trying to insert now, key %d in root page %d, from data in reg %d.", r2->value.i, cursor->root_page_n, op->p2);
+    chilog(DEBUG, "Trying to insert key %d in root page %d, from data in reg %d.", r2->value.i, cursor->root_page_n, op->p2);
     int try_insert = chidb_Btree_insertInTable(cursor->bt, cursor->root_page_n, r2->value.i, r1->value.bin.bytes, r1->value.bin.nbytes);
-    chilog(DEBUG, "Inserted.");
     if (try_insert != CHIDB_OK)
     {
+        chilog(DEBUG, "Insertion failed.");
         return try_insert;
     }
     chidb_Cursor_rewind(cursor);
@@ -787,7 +793,7 @@ int chidb_dbm_op_IdxLe(chidb_stmt *stmt, chidb_dbm_op_t *op)
 int chidb_dbm_op_IdxPKey(chidb_stmt *stmt, chidb_dbm_op_t *op)
 {
     chidb_dbm_cursor_t *cursor = stmt->cursors + op->p1;
-    if (stmt->reg <= op->p2)
+    if (stmt->nReg <= op->p2)
     {
         realloc_reg(stmt, op->p2 + 1);
     }
@@ -828,8 +834,14 @@ int chidb_dbm_op_IdxInsert(chidb_stmt *stmt, chidb_dbm_op_t *op)
     chidb_key_t pKey = stmt->reg[op->p3].value.i;
 
     int try_insert = chidb_Btree_insertInIndex(cursor->bt, cursor->root_page_n, idxKey, pKey);
+    if (try_insert != CHIDB_OK)
+    {
+        chilog(WARNING, "Btree index insert returned with code %d", try_insert);
+        return try_insert;
+    }
     chidb_Cursor_rewind(cursor);
     chidb_Cursor_setKey(cursor, key, 0);
+    return CHIDB_OK;
 }
 
 int chidb_dbm_op_CreateTable(chidb_stmt *stmt, chidb_dbm_op_t *op)
@@ -837,7 +849,7 @@ int chidb_dbm_op_CreateTable(chidb_stmt *stmt, chidb_dbm_op_t *op)
     /* Your code goes here */
     npage_t new_npage;
     chidb_Btree_newNode(stmt->db->bt, &new_npage, PGTYPE_TABLE_LEAF);
-    if (stmt->reg <= op->p1)
+    if (stmt->nReg <= op->p1)
     {
         realloc_reg(stmt, op->p1 + 1);
     }
@@ -852,7 +864,7 @@ int chidb_dbm_op_CreateIndex(chidb_stmt *stmt, chidb_dbm_op_t *op)
     /* Your code goes here */
     npage_t new_npage;
     chidb_Btree_newNode(stmt->db->bt, &new_npage, PGTYPE_INDEX_LEAF);
-    if (stmt->reg <= op->p1)
+    if (stmt->nReg <= op->p1)
     {
         realloc_reg(stmt, op->p1 + 1);
     }
