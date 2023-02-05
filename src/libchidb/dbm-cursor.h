@@ -115,6 +115,7 @@ int chidb_Cursor_rewind(chidb_dbm_cursor_t *cursor);
 // int chidb_Cursor_rewindIndex(chidb_dbm_cursor_t *cursor);
 
 // int chidb_Cursor_next(chidb_dbm_cursor_t *cursor);
+int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell **cell);
 
 int chidb_Cursor_next(chidb_dbm_cursor_t *cursor);
 

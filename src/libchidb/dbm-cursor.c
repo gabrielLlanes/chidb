@@ -151,14 +151,33 @@ int chidb_Cursor_rewind(chidb_dbm_cursor_t *cursor)
   chidb_Cursor_rewindNode(cursor, cursor->root_page_n, 0);
 }
 
+int chidb_Cursor_get(chidb_dbm_cursor_t *cursor, BTreeCell **cell)
+{
+  BTreeCell _cell;
+  chidb_key_t key = cursor->curr_key;
+  cursor_node_entry *entry = cursor->node_entries + (cursor->nNodes - 1);
+  BTreeNode *btn = entry->node;
+  for (int i = 0; i < btn->n_cells; i++)
+  {
+    chidb_Btree_getCell(btn, i, &_cell);
+    if (_cell.key == cursor->curr_key)
+    {
+      break;
+    }
+  }
+  *cell = &_cell;
+  return CHIDB_OK;
+}
+
 int chidb_Cursor_tableNextHelper(chidb_dbm_cursor_t *cursor, int cursor_node_n)
 {
   cursor_node_entry *entry = cursor->node_entries + cursor_node_n;
   BTreeNode *btn = entry->node;
   BTreeCell cell;
+  chilog(INFO, "%d cells, page %d, entry ncell %d", btn->n_cells, btn->page->npage, entry->ncell);
   if (btn->type == PGTYPE_TABLE_LEAF || btn->type == PGTYPE_INDEX_LEAF)
   {
-    if (entry->ncell == btn->n_cells - 1)
+    if (entry->ncell == btn->n_cells - 1 || btn->n_cells == 0 && cursor_node_n == 0)
     {
       if (cursor_node_n == 0)
       {

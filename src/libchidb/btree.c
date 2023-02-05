@@ -62,22 +62,6 @@ void reverse_endian(uint8_t *to, uint8_t *from, int n)
     }
 }
 
-static void is_internal(uint8_t type)
-{
-    if (type == PGTYPE_INDEX_INTERNAL || type == PGTYPE_TABLE_INTERNAL)
-    {
-        return 1;
-    }
-    else if (type == PGTYPE_INDEX_LEAF || type == PGTYPE_TABLE_LEAF)
-    {
-        return 0;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 static const uint8_t DEFAULT_FILE_HEADER[100] = {
     'S', 'Q', 'L', 'i', 't', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't', ' ', '3', '\0',
     0x04, 0x00, 0x01, 0x01, 0x00, 0x40, 0x20, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -225,7 +209,7 @@ int chidb_Btree_open(const char *filename, chidb *db, BTree **bt)
     ptr += 4;
 
     uint64_t bytes_32_thru_39;
-    reverse_endian(&bytes_32_thru_39, ptr, 8);
+    reverse_endian((uint8_t *)&bytes_32_thru_39, ptr, 8);
     if (bytes_32_thru_39 != 0)
     {
         return CHIDB_ECORRUPTHEADER;
@@ -254,7 +238,7 @@ int chidb_Btree_open(const char *filename, chidb *db, BTree **bt)
     ptr += 4;
 
     uint64_t bytes_52_thru_59;
-    reverse_endian(&bytes_52_thru_59, ptr, 8);
+    reverse_endian((uint8_t *)&bytes_52_thru_59, ptr, 8);
     if (bytes_52_thru_59 != 0x0000000000000001)
     {
         return CHIDB_ECORRUPTHEADER;
@@ -331,7 +315,6 @@ int chidb_Btree_getNodeByPage(BTree *bt, npage_t npage, BTreeNode **btn)
         return try_read_page;
     }
     bTreeNode->page = page;
-    Pager *pager = bt->pager;
     uint8_t *data = page->data;
     if (npage == 1)
     {
@@ -341,13 +324,17 @@ int chidb_Btree_getNodeByPage(BTree *bt, npage_t npage, BTreeNode **btn)
     bTreeNode->type = *data;
     data += 1;
     bTreeNode->free_offset = get2byte(data);
+    chilog(DEBUG, "%d free offset", bTreeNode->free_offset);
     data += 2;
     bTreeNode->n_cells = get2byte(data);
+    chilog(DEBUG, "%d cells", bTreeNode->n_cells);
     data += 2;
     bTreeNode->cells_offset = get2byte(data);
+    chilog(DEBUG, "%d cells offset", bTreeNode->cells_offset);
     data += 2;
     data += 1;
     uint8_t type = bTreeNode->type;
+    chilog(DEBUG, "%d cell type", type);
     // 0x05: internal table page, 0x02: internal index page
     if (type == PGTYPE_INDEX_INTERNAL || type == PGTYPE_TABLE_INTERNAL)
     {
@@ -388,7 +375,7 @@ int chidb_Btree_freeMemNode(BTree *bt, BTreeNode *btn)
 static uint8_t init_header(uint8_t type, uint16_t page_size, npage_t npage, uint8_t *header)
 {
     uint8_t header_size = 0;
-    uint16_t free_offset;
+    uint16_t free_offset = 0;
     uint16_t n_cells = 0;
     uint16_t cells_offset = page_size;
     uint8_t _zero = 0;
@@ -399,6 +386,10 @@ static uint8_t init_header(uint8_t type, uint16_t page_size, npage_t npage, uint
     else if (type == PGTYPE_INDEX_LEAF || type == PGTYPE_TABLE_LEAF)
     {
         header_size = 8;
+    }
+    else
+    {
+        return CHIDB_ECORRUPT;
     }
     free_offset += header_size;
     if (npage == 1)
@@ -685,6 +676,10 @@ int chidb_Btree_insertCell(BTreeNode *btn, ncell_t ncell, BTreeCell *cell)
             put4byte(new_cell_ptr + 4, cell->key);
             put4byte(new_cell_ptr + 8, cell->fields.indexLeaf.keyPk);
         }
+        else
+        {
+            return CHIDB_ECORRUPT;
+        }
         put2byte((btn->celloffset_array) + 2 * ncell, btn->cells_offset - cell_size);
         btn->free_offset += 2;
         btn->n_cells += 1;
@@ -805,6 +800,10 @@ static int node_has_space(BTreeNode *btn, BTreeCell *cell)
     {
         cell_size = 12;
     }
+    else
+    {
+        return CHIDB_ECORRUPT;
+    }
     return (btn->cells_offset - btn->free_offset - 2) >= cell_size;
 }
 
@@ -861,7 +860,7 @@ int chidb_Btree_insertInTable(BTree *bt, npage_t nroot, chidb_key_t key, uint8_t
 int chidb_Btree_insertInIndex(BTree *bt, npage_t nroot, chidb_key_t keyIdx, chidb_key_t keyPk)
 {
     /* Your code goes here */
-    chilog_setloglevel(INFO);
+    chilog_setloglevel(CRITICAL);
     chilog(DEBUG, "Entering chidb_Btree_insertInIndex for insertion of key %d into page %d", keyIdx, nroot);
     BTreeCell btc;
     btc.key = keyIdx;
@@ -892,7 +891,6 @@ static void transfer_cells(BTree *bt, BTreeNode *to_node, BTreeNode **from_node,
         to_node->right_page = median_cell->fields.indexInternal.child_page;
     }
     BTreeNode *new_right_node;
-    npage_t new_right_n;
     chidb_Btree_initEmptyNode(bt, (*from_node)->page->npage, (*from_node)->type);
     chidb_Btree_getNodeByPage(bt, (*from_node)->page->npage, &new_right_node);
 
@@ -975,7 +973,15 @@ int chidb_Btree_insert(BTree *bt, npage_t nroot, BTreeCell *btc)
             root_node->celloffset_array -= 100;
         }
         int a1 = chidb_Btree_writeNode(bt, root_node);
+        if (a1 != CHIDB_OK)
+        {
+            return a1;
+        }
         int a2 = chidb_Btree_writeNode(bt, new_root_node);
+        if (a2 != CHIDB_OK)
+        {
+            return a2;
+        }
         chidb_Btree_freeMemNode(bt, new_root_node);
     }
     chidb_Btree_freeMemNode(bt, root_node);
@@ -1078,6 +1084,10 @@ int chidb_Btree_insertNonFull(BTree *bt, npage_t npage, BTreeCell *btc)
             return try_write;
         }
     }
+    else
+    {
+        return CHIDB_ECORRUPT;
+    }
 }
 
 /* Split a B-Tree node
@@ -1146,7 +1156,7 @@ int chidb_Btree_split(BTree *bt, npage_t npage_parent, npage_t npage_child, ncel
         insert_parent.fields.indexInternal.child_page = new_page_n;
         insert_parent.fields.indexInternal.keyPk = median_cell.fields.indexInternal.keyPk;
     }
-    int try_insert_parent = chidb_Btree_insertCell(parent_node, parent_ncell, &insert_parent);
+    chidb_Btree_insertCell(parent_node, parent_ncell, &insert_parent);
     *npage_child2 = new_page_n;
 
     chidb_Btree_writeNode(bt, parent_node);

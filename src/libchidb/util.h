@@ -43,6 +43,7 @@
 #include "chidbInt.h"
 #include "btree.h"
 #include <chidb/utils.h>
+#include <chidb/log.h>
 
 /*
 ** Read or write a two- and four-byte big-endian integer values.
@@ -73,6 +74,24 @@ typedef void (*fBTreeCellPrinter)(BTreeNode *, BTreeCell *);
 int chidb_Btree_print(BTree *bt, npage_t nroot, fBTreeCellPrinter printer, bool verbose);
 void chidb_BTree_recordPrinter(BTreeNode *btn, BTreeCell *btc);
 void chidb_BTree_stringPrinter(BTreeNode *btn, BTreeCell *btc);
+
+int getRecordCol(uint8_t *data, int ncol, uint32_t *type, uint32_t *offset);
+
+int schema_exists(chidb *db, char *name);
+
+int schema_root_page(chidb *db, char *name);
+
+int table_col_exists(chidb *db, char *table_name, char *col_name);
+
+int table_col_type(chidb *db, char *table_name, char *col_name);
+
+int table_col_n(chidb *db, char *table_name, char *col_name);
+
+int table_ncols(chidb *db, char *table_name);
+
+int get_schema(chidb *db, char *schema_name, ChidbSchema *schema);
+
+int is_pkey(chidb *db, char *table_name, char *col_name);
 
 FILE *copy(const char *from, const char *to);
 

@@ -254,51 +254,14 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         realloc_reg(stmt, op->p3 + 1);
     }
     chidb_dbm_cursor_t *cursor = stmt->cursors + op->p1;
-    cursor_node_entry *entry = cursor->node_entries + (cursor->nNodes - 1);
-    BTreeNode *btn = entry->node;
-    BTreeCell cell;
-    for (int i = 0; i < btn->n_cells; i++)
-    {
-        chidb_Btree_getCell(btn, i, &cell);
-        if (cell.key == cursor->curr_key)
-        {
-            break;
-        }
-    }
-    uint8_t *data = cell.fields.tableLeaf.data;
+    BTreeCell *cell;
+    chidb_Cursor_get(cursor, &cell);
+    uint8_t *data = cell->fields.tableLeaf.data;
     uint8_t *ptr = data;
-    int offset_to_col = 0;
-    // first extract the type of the column
-    ptr += 1;
-    for (int i = 0; i < op->p2; i++)
-    {
-        uint8_t type_first_byte = *ptr;
-        uint32_t col_size;
-        if (type_first_byte >= 128)
-        {
-            uint32_t header_val;
-            getVarint32(ptr, &header_val);
-            col_size = (header_val - 13) / 2;
-            ptr += 4;
-        }
-        else
-        {
-            col_size = type_first_byte;
-            ptr += 1;
-        }
-        offset_to_col += col_size;
-    }
     uint32_t type;
-    int col_type_first_byte = *ptr;
-    if (col_type_first_byte >= 128)
-    {
-        getVarint32(ptr, &type);
-    }
-    else
-    {
-        type = *ptr;
-    }
-    data = data + *data + offset_to_col;
+    uint32_t offset_to_col = 0;
+    getRecordCol(data, op->p2, &type, &offset_to_col);
+    ptr += offset_to_col;
     chidb_dbm_register_t *reg = stmt->reg + op->p3;
     if (type == 0)
     {
@@ -309,15 +272,15 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         reg->type = REG_INT32;
         if (type == 1)
         {
-            reg->value.i = *data;
+            reg->value.i = *ptr;
         }
         else if (type == 2)
         {
-            reg->value.i = get2byte(data);
+            reg->value.i = get2byte(ptr);
         }
         else if (type == 4)
         {
-            reg->value.i = get4byte(data);
+            reg->value.i = get4byte(ptr);
         }
     }
     else
@@ -325,7 +288,7 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         reg->type = REG_STRING;
         int str_size = col_size(type);
         reg->value.s = malloc(str_size + 1);
-        memcpy(reg->value.s, data, str_size);
+        memcpy(reg->value.s, ptr, str_size);
         reg->value.s[str_size] = '\0';
     }
     return CHIDB_OK;

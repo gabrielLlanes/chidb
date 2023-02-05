@@ -37,7 +37,6 @@
  *
  */
 
-
 #ifndef CHIDBINT_H_
 #define CHIDBINT_H_
 
@@ -61,7 +60,6 @@
 #define CHIDB_EEMPTY (9)
 #define CHIDB_EPARSE (10)
 
-
 #define DEFAULT_PAGE_SIZE (1024)
 
 #define MAX_STR_LEN (256)
@@ -73,8 +71,23 @@ typedef uint32_t chidb_key_t;
 /* Forward declaration */
 typedef struct BTree BTree;
 
+// typedef struct ChidbSchema ChidbSchema;
 
-  /* code */
+struct ChidbSchema
+{
+  enum CreateType type;
+  union
+  {
+    Table_t *table;
+    Index_t *index;
+  };
+  char *name;
+  char *assoc_table_name;
+  npage_t root_npage;
+  char *sql;
+};
+
+/* code */
 
 /* A chidb database is initially only a BTree.
  * This presuposes that only the btree.c module has been implemented.
@@ -83,7 +96,9 @@ typedef struct BTree BTree;
  */
 struct chidb
 {
-    BTree   *bt;
+  BTree *bt;
+  ChidbSchema *schema_list;
+  int nSchema;
 };
 
 #endif /*CHIDBINT_H_*/

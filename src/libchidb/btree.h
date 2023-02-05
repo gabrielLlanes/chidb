@@ -83,6 +83,9 @@
 #define INDEXINTCELL_SIZE (16)
 #define INDEXLEAFCELL_SIZE (12)
 
+#define SCHEMA_TYPE_TABLE (1)
+#define SCHMEA_TYPE_INDEX (2)
+
 // Advance declarations
 typedef struct BTreeCell BTreeCell;
 typedef struct BTreeNode BTreeNode;
@@ -123,31 +126,30 @@ struct BTreeNode
  * document for more details on the meaning of each field */
 struct BTreeCell
 {
-    uint8_t type;  /* Type of page where this cell is contained */
-    chidb_key_t key;     /* Key */
+    uint8_t type;    /* Type of page where this cell is contained */
+    chidb_key_t key; /* Key */
     union
     {
         struct
         {
-            npage_t child_page;  /* Child page with keys <= key */
+            npage_t child_page; /* Child page with keys <= key */
         } tableInternal;
         struct
         {
-            uint32_t data_size;  /* Number of bytes of data stored in this cell */
-            uint8_t *data;       /* Pointer to in-memory copy of data stored in this cell */
+            uint32_t data_size; /* Number of bytes of data stored in this cell */
+            uint8_t *data;      /* Pointer to in-memory copy of data stored in this cell */
         } tableLeaf;
         struct
         {
-            chidb_key_t keyPk;         /* Primary key of row where the indexed field is equal to key */
-            npage_t child_page;  /* Child page with keys < key */
+            chidb_key_t keyPk;  /* Primary key of row where the indexed field is equal to key */
+            npage_t child_page; /* Child page with keys < key */
         } indexInternal;
         struct
         {
-            chidb_key_t keyPk;         /* Primary key of row where the indexed field is equal to key */
+            chidb_key_t keyPk; /* Primary key of row where the indexed field is equal to key */
         } indexLeaf;
     } fields;
 };
-
 
 int chidb_Btree_open(const char *filename, chidb *db, BTree **bt);
 int chidb_Btree_close(BTree *bt);
@@ -169,6 +171,5 @@ int chidb_Btree_insertInIndex(BTree *bt, npage_t nroot, chidb_key_t keyIdx, chid
 int chidb_Btree_insert(BTree *bt, npage_t nroot, BTreeCell *btc);
 int chidb_Btree_insertNonFull(BTree *bt, npage_t npage, BTreeCell *btc);
 int chidb_Btree_split(BTree *bt, npage_t npage_parent, npage_t npage_child, ncell_t parent_cell, npage_t *npage_child2);
-
 
 #endif /*BTREE_H_*/

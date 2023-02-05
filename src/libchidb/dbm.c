@@ -46,8 +46,6 @@ int realloc_ops(chidb_stmt *stmt, uint32_t size);
 int realloc_reg(chidb_stmt *stmt, uint32_t size);
 int realloc_cur(chidb_stmt *stmt, uint32_t size);
 
-
-
 /* Initialize a DBM
  *
  * Creates an empty DBM with no instructions, no registers, and
@@ -87,21 +85,21 @@ int chidb_stmt_init(chidb_stmt *stmt, chidb *db)
     stmt->nOps = 0;
     stmt->endOp = 0;
     rc = realloc_ops(stmt, DEFAULT_OPS_SIZE);
-    if(rc != CHIDB_OK)
+    if (rc != CHIDB_OK)
         return rc;
 
     /* Same as above, but with registers. */
     stmt->reg = NULL;
     stmt->nReg = 0;
     rc = realloc_reg(stmt, DEFAULT_REG_SIZE);
-    if(rc != CHIDB_OK)
+    if (rc != CHIDB_OK)
         return rc;
 
     /* Same as above, but with cursors. */
     stmt->cursors = NULL;
     stmt->nCursors = 0;
     rc = realloc_cur(stmt, DEFAULT_CUR_SIZE);
-    if(rc != CHIDB_OK)
+    if (rc != CHIDB_OK)
         return rc;
 
     /* Initially, there is no Result Row */
@@ -125,12 +123,11 @@ int chidb_stmt_init(chidb_stmt *stmt, chidb *db)
  */
 int chidb_stmt_free(chidb_stmt *stmt)
 {
-	free(stmt->ops);
-	free(stmt->reg);
-	free(stmt->cursors);
+    free(stmt->ops);
+    free(stmt->reg);
+    free(stmt->cursors);
     return CHIDB_OK;
 }
-
 
 /* Set the value of a specific instruction
  *
@@ -150,29 +147,31 @@ int chidb_stmt_free(chidb_stmt *stmt)
  */
 int chidb_stmt_set_op(chidb_stmt *stmt, chidb_dbm_op_t *op, uint32_t pos)
 {
-	/* Is the array of instructions large enough for instruction "pos"?
-	 * If not, reallocate the instruction array */
+    /* Is the array of instructions large enough for instruction "pos"?
+     * If not, reallocate the instruction array */
     if (pos >= stmt->nOps)
     {
+        chilog(INFO, "Realloc needed %d", stmt->nOps);
         int rc = realloc_ops(stmt, pos + 1);
         if (rc != CHIDB_OK)
             return rc;
     }
-
+    // chilog(INFO, "Copying.");
     memcpy(&stmt->ops[pos], op, sizeof(chidb_dbm_op_t));
+    // chilog(INFO, "Copied.");
 
-    if(op->p4 != NULL)
+    if (op->p4 != NULL)
         stmt->ops[pos].p4 = strdup(op->p4);
 
-    if(pos >= stmt->endOp)
+    // chilog(INFO, "Made past strdup");
+    if (pos >= stmt->endOp)
         stmt->endOp = pos + 1;
 
     return CHIDB_OK;
 }
 
 /* Forward declaration of instruction handler. See dbm-ops.c for details */
-int chidb_dbm_op_handle (chidb_stmt *stmt, chidb_dbm_op_t *op);
-
+int chidb_dbm_op_handle(chidb_stmt *stmt, chidb_dbm_op_t *op);
 
 /* Run the DBM
  *
@@ -199,7 +198,7 @@ int chidb_stmt_exec(chidb_stmt *stmt)
 {
     int rc = CHIDB_OK;
 
-    while(stmt->pc < stmt->endOp)
+    while (stmt->pc < stmt->endOp)
     {
         chidb_dbm_op_t *op = &stmt->ops[stmt->pc++];
         rc = chidb_dbm_op_handle(stmt, op);
@@ -237,11 +236,11 @@ int chidb_stmt_op_print(chidb_dbm_op_t *op)
 }
 
 /* Returns a human-readable string representation of a register */
-char* chidb_stmt_reg_str(chidb_dbm_register_t *r)
+char *chidb_stmt_reg_str(chidb_dbm_register_t *r)
 {
     char s[MAX_STR_LEN + 1];
 
-    switch(r->type)
+    switch (r->type)
     {
     case REG_UNSPECIFIED:
         strcpy(s, "");
@@ -277,23 +276,23 @@ int chidb_stmt_reg_print(chidb_dbm_register_t *r)
 
 /* Returns a string representation of the current Result Row, with each
  * column separated by "sep"  */
-char* chidb_stmt_rr_str(chidb_stmt *stmt, char sep)
+char *chidb_stmt_rr_str(chidb_stmt *stmt, char sep)
 {
     char s[MAX_STR_LEN + 1], *rstr, sepstr[2];
     bool first = true;
 
-    s[0]='\0';
+    s[0] = '\0';
 
     sepstr[0] = sep;
     sepstr[1] = '\0';
 
-    for(int i=stmt->startRR; i < stmt->startRR + stmt->nRR; i++)
+    for (int i = stmt->startRR; i < stmt->startRR + stmt->nRR; i++)
     {
         chidb_dbm_register_t *r = &stmt->reg[i];
 
-        if(r->type != REG_UNSPECIFIED)
+        if (r->type != REG_UNSPECIFIED)
         {
-            if(!first)
+            if (!first)
                 strcat(s, sepstr);
             else
                 first = false;
@@ -306,7 +305,6 @@ char* chidb_stmt_rr_str(chidb_stmt *stmt, char sep)
 
     return strdup(s);
 }
-
 
 /* Prints the current Result Row, with each column separated by "sep"  */
 int chidb_stmt_rr_print(chidb_stmt *stmt, char sep)
@@ -326,7 +324,7 @@ int chidb_stmt_print(chidb_stmt *stmt)
 {
     printf("     opcode          P1     P2     P3     P4\n");
     printf("     --------------- ------ ------ ------ ------\n");
-    for(int i=0; i < stmt->endOp; i++)
+    for (int i = 0; i < stmt->endOp; i++)
     {
         printf("%3i: ", i);
         chidb_stmt_op_print(&stmt->ops[i]);
@@ -336,11 +334,11 @@ int chidb_stmt_print(chidb_stmt *stmt)
     printf("REGISTERS\n");
     printf("---------\n");
     bool somevalue = false;
-    for(int i=0; i < stmt->nReg; i++)
+    for (int i = 0; i < stmt->nReg; i++)
     {
         chidb_dbm_register_t *r = &stmt->reg[i];
 
-        if(r->type != REG_UNSPECIFIED)
+        if (r->type != REG_UNSPECIFIED)
         {
             somevalue = true;
             printf("R_%i = ", i);
@@ -349,7 +347,7 @@ int chidb_stmt_print(chidb_stmt *stmt)
         }
     }
 
-    if(!somevalue)
+    if (!somevalue)
         printf("None of the registers have values\n");
 
     return CHIDB_OK;
@@ -361,10 +359,10 @@ int chidb_stmt_print(chidb_stmt *stmt)
 int realloc_ops(chidb_stmt *stmt, uint32_t size)
 {
     stmt->ops = realloc(stmt->ops, sizeof(chidb_dbm_op_t) * size);
-    if(stmt->ops == NULL)
+    if (stmt->ops == NULL)
         return CHIDB_ENOMEM;
 
-    for(int i=stmt->nOps; i < size; i++)
+    for (int i = stmt->nOps; i < size; i++)
     {
         stmt->ops[i].opcode = Op_Noop;
         stmt->ops[i].p1 = 0;
@@ -383,10 +381,10 @@ int realloc_ops(chidb_stmt *stmt, uint32_t size)
 int realloc_reg(chidb_stmt *stmt, uint32_t size)
 {
     stmt->reg = realloc(stmt->reg, sizeof(chidb_dbm_register_t) * size);
-    if(stmt->reg == NULL)
+    if (stmt->reg == NULL)
         return CHIDB_ENOMEM;
 
-    for(int i=stmt->nReg; i < size; i++)
+    for (int i = stmt->nReg; i < size; i++)
     {
         stmt->reg[i].type = REG_UNSPECIFIED;
     }
@@ -401,10 +399,10 @@ int realloc_reg(chidb_stmt *stmt, uint32_t size)
 int realloc_cur(chidb_stmt *stmt, uint32_t size)
 {
     stmt->cursors = realloc(stmt->cursors, sizeof(chidb_dbm_cursor_t) * size);
-    if(stmt->cursors == NULL)
+    if (stmt->cursors == NULL)
         return CHIDB_ENOMEM;
 
-    for(int i=stmt->nCursors; i < size; i++)
+    for (int i = stmt->nCursors; i < size; i++)
     {
         stmt->cursors[i].type = CURSOR_UNSPECIFIED;
     }
@@ -413,4 +411,3 @@ int realloc_cur(chidb_stmt *stmt, uint32_t size)
 
     return CHIDB_OK;
 }
-

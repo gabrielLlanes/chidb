@@ -311,3 +311,196 @@ int chidb_tokenize(char *str, char ***tokens)
 
     return ntokens;
 }
+
+// out parameter type, and out parameter offset, which is relative to data pointer.
+int getRecordCol(uint8_t *data, int ncol, uint32_t *type, uint32_t *offset)
+{
+    // chilog_setloglevel(INFO);
+    chilog(INFO, "Getting col %d", ncol);
+    uint8_t *ptr = data;
+    uint32_t offset_to_col = *data;
+    chilog(INFO, "Offset to header is %d", *data);
+    ptr += 1;
+    for (int i = 0; i < ncol; i++)
+    {
+        uint8_t type_first_byte = *ptr;
+        uint32_t col_size;
+        if (type_first_byte >= 128)
+        {
+            chilog(INFO, "TEXT detected");
+            uint32_t header_val;
+            getVarint32(ptr, &header_val);
+            col_size = (header_val - 13) / 2;
+            ptr += 4;
+        }
+        else
+        {
+            chilog(INFO, "Integer detected");
+            col_size = type_first_byte;
+            ptr += 1;
+        }
+        offset_to_col += col_size;
+    }
+    *offset = offset_to_col;
+    int col_type_first_byte = *ptr;
+    if (col_type_first_byte >= 128)
+    {
+        getVarint32(ptr, type);
+    }
+    else
+    {
+        *type = *ptr;
+    }
+    return CHIDB_OK;
+}
+
+int schema_exists(chidb *db, char *name)
+{
+    for (int i = 0; i < db->nSchema; i++)
+    {
+        if (strcmp(name, db->schema_list[i].name) == 0)
+        {
+            return i + 1;
+        }
+    }
+    return 0;
+}
+
+int schema_root_page(chidb *db, char *name)
+{
+    int i = schema_exists(db, name);
+    if (i == 0)
+    {
+        return 0;
+    }
+    else
+    {
+        return db->schema_list[i - 1].root_npage;
+    }
+}
+
+int table_col_exists(chidb *db, char *table_name, char *col_name)
+{
+    int i = schema_exists(db, table_name);
+    if (i == 0 || db->schema_list[i - 1].type == CREATE_INDEX)
+    {
+        return 0;
+    }
+    ChidbSchema schema = db->schema_list[i - 1];
+    Column_t *curr_col = schema.table->columns;
+    int j = 0;
+    while (curr_col != NULL && strcmp(col_name, curr_col->name) != 0)
+    {
+        j++;
+        curr_col = curr_col->next;
+    }
+    if (curr_col == NULL)
+    {
+        return 0;
+    }
+    return j + 1;
+    // schema.table
+}
+
+int table_ncols(chidb *db, char *table_name)
+{
+    int i = schema_exists(db, table_name);
+    if (i == 0)
+    {
+        return -1;
+    }
+    Column_t *col = db->schema_list[i - 1].table->columns;
+    int nCols = 0;
+    while (col != NULL)
+    {
+        nCols++;
+        col = col->next;
+    }
+    return nCols;
+}
+
+int table_col_type(chidb *db, char *table_name, char *col_name)
+{
+    int i = schema_exists(db, table_name);
+    if (i == 0)
+    {
+        return -1;
+    }
+    int j = table_col_exists(db, table_name, col_name);
+    if (j == 0)
+    {
+        return -1;
+    }
+    Column_t *col = db->schema_list[i - 1].table->columns;
+    for (int k = 0; k < j - 1; k++)
+    {
+        col = col->next;
+    }
+    chilog(INFO, "Returning col type %d for %s", col->type, col_name);
+    return col->type;
+}
+
+int table_col_n(chidb *db, char *table_name, char *col_name)
+{
+    int i = table_col_exists(db, table_name, col_name);
+    if (i == 0)
+    {
+        return -1;
+    }
+    else
+    {
+        return i - 1;
+    }
+}
+
+int table_col_name(chidb *db, char *table_name, int colN, char **col_name)
+{
+    *col_name = db->schema_list[schema_exists(db, table_name) - 1].table->columns[colN].name;
+    return CHIDB_OK;
+}
+
+int get_schema(chidb *db, char *name, ChidbSchema *schema)
+{
+    int i = schema_exists(db, name);
+    if (i == 0)
+    {
+        return 1;
+    }
+    else
+    {
+        *schema = db->schema_list[i - 1];
+        return 0;
+    }
+}
+
+int is_pkey(chidb *db, char *table_name, char *col_name)
+{
+    chilog(INFO, "In pkey testing col %s", col_name);
+    int i = schema_exists(db, table_name);
+    if (i == 0)
+    {
+        return 0;
+    }
+    int j = table_col_exists(db, table_name, col_name);
+    if (j == 0)
+    {
+        return 0;
+    }
+    ChidbSchema schema = db->schema_list[i - 1];
+    Column_t *col = schema.table->columns;
+    int k;
+    for (k = 0; k < j - 1; k++)
+    {
+        col = col->next;
+    }
+    chilog(INFO, "In pkey testing col %s, %d after loop", col_name, k);
+    if (col->constraints != NULL && col->constraints->t == CONS_PRIMARY_KEY)
+    {
+        chilog(INFO, "is primary key");
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}

@@ -21,6 +21,7 @@
  * From the API's perspective's, these are opaque data types. */
 typedef struct chidb_stmt chidb_stmt;
 typedef struct chidb chidb;
+typedef struct ChidbSchema ChidbSchema;
 
 /* API return codes */
 #define CHIDB_OK (0)
@@ -56,8 +57,7 @@ typedef struct chidb chidb;
  * - CHIDB_ECORRUPT: The database file is not well formed
  * - CHIDB_EIO: An I/O error has occurred when accessing the file
  */
-int chidb_open(const char *file, chidb **db); 
-
+int chidb_open(const char *file, chidb **db);
 
 /* Prepares a SQL statement for execution
  *
@@ -73,7 +73,6 @@ int chidb_open(const char *file, chidb **db);
  * - CHIDB_ENOMEM: Could not allocate memory
  */
 int chidb_prepare(chidb *db, const char *sql, chidb_stmt **stmt);
-
 
 /* Steps through a prepared SQL statement
  *
@@ -99,7 +98,6 @@ int chidb_prepare(chidb *db, const char *sql, chidb_stmt **stmt);
  */
 int chidb_step(chidb_stmt *stmt);
 
-
 /* Finalizes a SQL statement, freeing all resources associated with it.
  *
  * Parameters
@@ -110,7 +108,6 @@ int chidb_step(chidb_stmt *stmt);
  * - CHIDB_EMISUSE: Statement was already finalized
  */
 int chidb_finalize(chidb_stmt *stmt);
-
 
 /* Returns the number of columns returned by a SQL statement
  *
@@ -124,7 +121,6 @@ int chidb_finalize(chidb_stmt *stmt);
  */
 int chidb_column_count(chidb_stmt *stmt);
 
-
 /* Returns the type of a column
  *
  * Parameters
@@ -135,7 +131,6 @@ int chidb_column_count(chidb_stmt *stmt);
  * - Column type (see chidb Architecture document for valid types)
  */
 int chidb_column_type(chidb_stmt *stmt, int col);
-
 
 /* Returns the name of a column
  *
@@ -148,8 +143,7 @@ int chidb_column_type(chidb_stmt *stmt, int col);
  *   client does not have to free() the returned string. It is the API's
  *   responsibility to allocate and free the memory for this string.
  */
-const char *chidb_column_name(chidb_stmt* stmt, int col);
-
+const char *chidb_column_name(chidb_stmt *stmt, int col);
 
 /* Returns the value of a column of integer type
  *
@@ -161,7 +155,6 @@ const char *chidb_column_name(chidb_stmt* stmt, int col);
  * - Integer value
  */
 int chidb_column_int(chidb_stmt *stmt, int col);
-
 
 /* Returns the value of a column of string type
  *
@@ -177,7 +170,6 @@ int chidb_column_int(chidb_stmt *stmt, int col);
  */
 const char *chidb_column_text(chidb_stmt *stmt, int col);
 
-
 /* Closes a chidb database
  *
  * Parameters
@@ -187,6 +179,6 @@ const char *chidb_column_text(chidb_stmt *stmt, int col);
  * - CHIDB_OK: Operation successful
  * - CHIDB_EMISUSE: Database that is already closed
  */
-int chidb_close(chidb *db); 
+int chidb_close(chidb *db);
 
 #endif /*CHIDB_H_*/
