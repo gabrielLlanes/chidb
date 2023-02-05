@@ -44,11 +44,13 @@
 
 /* ...code... */
 
-static int check_cols_exist(chidb_stmt *stmt, char *table_name, Expression_t *cols, int nCols);
+static int check_cols_exist_expr(chidb_stmt *stmt, char *table_name, Expression_t *cols, int nCols);
 
-static int chidb_stmt_validate_schema_exists(chidb_stmt *stmt, SRA_Table_t *sra_table, int *root_npage)
+static int check_cols_exist_strlist(chidb_stmt *stmt, char *table_name, StrList_t *cols, int nCols);
+
+static int chidb_stmt_validate_schema_exists(chidb_stmt *stmt, char *schema_name, int *root_npage)
 {
-  npage_t _root_npage = schema_root_page(stmt->db, sra_table->ref->table_name);
+  npage_t _root_npage = schema_root_page(stmt->db, schema_name);
   if (_root_npage == 0)
   {
     return CHIDB_EINVALIDSQL;
@@ -107,7 +109,7 @@ static int chidb_stmt_validate_project_selected_cols(chidb_stmt *stmt, chisql_st
     curr_col = curr_col->next;
   }
   *nCols = _nCols;
-  int cols_exist = check_cols_exist(stmt, sra_table.ref->table_name, cols, _nCols);
+  int cols_exist = check_cols_exist_expr(stmt, sra_table.ref->table_name, cols, _nCols);
   if (!cols_exist)
   {
     return CHIDB_EINVALIDSQL;
@@ -142,6 +144,36 @@ static int chidb_stmt_validate_project_cols(chidb_stmt *stmt, chisql_statement_t
   }
 }
 
+static int chidb_stmt_validate_insert_cols(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int *nCols, int *pkey_n)
+{
+  chilog(INFO, "Validate insert");
+  Insert_t *insert = sql_stmt->stmt.insert;
+  StrList_t *col_names = insert->col_names;
+  int _nCols = 0;
+  while (col_names != NULL)
+  {
+    _nCols++;
+    col_names = col_names->next;
+  }
+  *nCols = _nCols;
+  chilog(INFO, "%d cols check", _nCols);
+  col_names = insert->col_names;
+  if (!check_cols_exist_strlist(stmt, insert->table_name, col_names, _nCols))
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  *pkey_n = -1;
+  for (int i = 0; col_names != NULL && i < _nCols; i++, col_names = col_names->next)
+  {
+    if (is_pkey(stmt->db, insert->table_name, col_names->str))
+    {
+      *pkey_n = i;
+      chilog(INFO, "Found pkey for insert at %d", *pkey_n);
+    }
+  }
+  return CHIDB_OK;
+}
+
 static int chidb_stmt_validate_simple_select(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
 {
   SRA_t *select = sql_stmt->stmt.select;
@@ -172,6 +204,8 @@ static int chidb_stmt_codegen_simple_select(chidb_stmt *stmt, chisql_statement_t
 
 static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int nCols, int pkey_n, int root_npage);
 
+static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t *sql_stmt);
+
 int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
 {
   chilog(INFO, "ENTER CODEGEN BASE");
@@ -191,7 +225,7 @@ int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
     SRA_Select_t sra_select = sra_project.sra->select;
     SRA_Table_t sra_table = sra_select.sra->table;
     chilog(INFO, "Validating schema %s exists", sra_table.ref->table_name);
-    if (chidb_stmt_validate_schema_exists(stmt, &sra_table, &root_npage) != CHIDB_OK)
+    if (chidb_stmt_validate_schema_exists(stmt, sra_table.ref->table_name, &root_npage) != CHIDB_OK)
     {
       return CHIDB_EINVALIDSQL;
     }
@@ -215,7 +249,7 @@ int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
     int nCols;
     SRA_Project_t sra_project = sql_stmt->stmt.select->project;
     SRA_Table_t sra_table = sra_project.sra->table;
-    if (chidb_stmt_validate_schema_exists(stmt, &sra_table, &root_npage) != CHIDB_OK)
+    if (chidb_stmt_validate_schema_exists(stmt, sra_table.ref->table_name, &root_npage) != CHIDB_OK)
     {
       return CHIDB_EINVALIDSQL;
     }
@@ -224,6 +258,11 @@ int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
       return CHIDB_EINVALIDSQL;
     }
     return chidb_stmt_codegen_simple_select(stmt, sql_stmt, nCols, pkey_n, root_npage);
+  }
+  else if (sql_stmt->type == STMT_INSERT)
+  {
+    chilog(INFO, "Insert %s", sql_stmt->text);
+    return chidb_stmt_codegen_simple_insert(stmt, sql_stmt);
   }
   int opnum = 0;
   int nOps;
@@ -261,12 +300,12 @@ int chidb_stmt_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
   return CHIDB_OK;
 }
 
-static int check_cols_exist(chidb_stmt *stmt, char *table_name, Expression_t *cols, int nCols)
+static int check_cols_exist_expr(chidb_stmt *stmt, char *table_name, Expression_t *cols, int nCols)
 {
   Expression_t *curr_col = cols;
   while (curr_col != NULL)
   {
-    nCols++;
+    // nCols++;
     if (table_col_exists(stmt->db, table_name, curr_col->expr.term.ref->columnName) == 0)
     {
       return 0;
@@ -274,6 +313,20 @@ static int check_cols_exist(chidb_stmt *stmt, char *table_name, Expression_t *co
     curr_col = curr_col->next;
   }
   chilog(INFO, " verified cols");
+  return 1;
+}
+
+static int check_cols_exist_strlist(chidb_stmt *stmt, char *table_name, StrList_t *cols, int nCols)
+{
+  StrList_t *curr_col = cols;
+  while (curr_col != NULL)
+  {
+    if (table_col_exists(stmt->db, table_name, curr_col->str) == 0)
+    {
+      return 0;
+    }
+    curr_col = curr_col->next;
+  }
   return 1;
 }
 
@@ -448,6 +501,175 @@ static int chidb_stmt_codegen_simple_select_where(chidb_stmt *stmt, chisql_state
   chidb_stmt_set_op(stmt, &op_close, 7 + nCols + 2);
   chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
   chidb_stmt_set_op(stmt, &op_halt, 7 + nCols + 3);
+  stmt->pc = 0;
+  return CHIDB_OK;
+}
+
+static int insert_set_all_cols(Insert_t *insert, ChidbSchema *schema)
+{
+  chilog(INFO, "Null cols, modifying.");
+  int nCols = 0;
+  Column_t *cols = schema->table->columns;
+  while (cols != NULL)
+  {
+    nCols++;
+    cols = cols->next;
+  }
+  cols = schema->table->columns;
+  insert->col_names = malloc(sizeof(StrList_t));
+  StrList_t *insert_cols = insert->col_names;
+  for (int i = 0; i < nCols; i++)
+  {
+    char *s = malloc(strlen(cols->name));
+    strcpy(s, cols->name);
+    insert_cols->str = s;
+    cols = cols->next;
+    if (i < nCols - 1)
+    {
+      insert_cols->next = malloc(sizeof(StrList_t));
+      insert_cols = insert_cols->next;
+    }
+    else
+    {
+      insert_cols->next = NULL;
+    }
+  }
+  insert_cols = insert->col_names;
+  while (insert_cols != NULL)
+  {
+    chilog(INFO, "COL INSERT MODIFIED: %s", insert_cols->str);
+    insert_cols = insert_cols->next;
+  }
+}
+
+static int verify_insert_value_types(enum data_type *types, int nCols, Literal_t *values, int *nValues)
+{
+  int _nValues = 0;
+  Literal_t *curr_val = values;
+  while (curr_val != NULL)
+  {
+    chilog(INFO, "%d %d type compare", curr_val->t, types[_nValues % nCols]);
+    if (curr_val->t != types[_nValues % nCols])
+    {
+      return CHIDB_EINVALIDSQL;
+    }
+    _nValues++;
+    curr_val = curr_val->next;
+  }
+  if (_nValues % nCols != 0)
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  chilog(INFO, "Verified values. %d values", _nValues);
+  *nValues = _nValues;
+  return CHIDB_OK;
+}
+
+static int simple_insert_codegen_record(chidb_stmt *stmt, Literal_t *values, int addr_start, int nCols, int base_reg, int pkey_n)
+{
+  Literal_t *curr_val = values;
+  for (int i = 0, j = 0; i < nCols; i++, curr_val = curr_val->next)
+  {
+    chilog(INFO, "Setting value/key instruction in addr %d", addr_start + i);
+    if (i == pkey_n)
+    {
+      chilog(INFO, "Setting pkey %d in reg %d", curr_val->val.ival, base_reg + nCols - 1);
+      chidb_dbm_op_t op_keyInt = {Op_Integer, curr_val->val.ival, base_reg + nCols - 1, 0, NULL};
+      chidb_stmt_set_op(stmt, &op_keyInt, addr_start + i);
+    }
+    else
+    {
+      if (curr_val->t == TYPE_TEXT)
+      {
+        chilog(INFO, "Setting value %s in reg %d", curr_val->val.strval, base_reg + (j % (nCols - 1)));
+        chidb_dbm_op_t op_string = {Op_String, strlen(curr_val->val.strval), base_reg + (j % (nCols - 1)), 0, curr_val->val.strval};
+        chidb_stmt_set_op(stmt, &op_string, addr_start + i);
+      }
+      else if (curr_val->t == TYPE_INT)
+      {
+        chilog(INFO, "Setting value %d in reg %d", curr_val->val.ival, base_reg + (j % (nCols - 1)));
+        chidb_dbm_op_t op_int = {Op_Integer, curr_val->val.ival, base_reg + (j % (nCols - 1)), 0, NULL};
+        chidb_stmt_set_op(stmt, &op_int, addr_start + i);
+      }
+      j++;
+    }
+  }
+  chidb_dbm_op_t op_record = {Op_MakeRecord, base_reg, nCols - 1, base_reg + nCols, NULL};
+  chilog(INFO, "Setting instruction (RECORD, %d, %d, %d, %s) in addr %d",
+         base_reg, nCols - 1, base_reg + nCols, NULL, addr_start + nCols);
+  chidb_stmt_set_op(stmt, &op_record, addr_start + nCols);
+  chidb_dbm_op_t op_insert = {Op_Insert, 0, base_reg + nCols, base_reg + nCols - 1, NULL};
+  chilog(INFO, "Setting instruction (INSERT, %d, %d, %d, %s) in addr %d",
+         0, base_reg + nCols, base_reg + nCols - 1, NULL, addr_start + nCols + 1);
+  chidb_stmt_set_op(stmt, &op_insert, addr_start + nCols + 1);
+  return CHIDB_OK;
+}
+
+static int simple_insert_codegen(chidb_stmt *stmt, chisql_statement_t *sql_stmt, int addr_start, int nCols, int nValues, int base_reg, int pkey_n)
+{
+  Insert_t *insert = sql_stmt->stmt.insert;
+  Literal_t *values = insert->values;
+  Literal_t *curr_values = values;
+  int nRecords = nValues / nCols;
+  for (int i = 0, curr_addr_start = addr_start; i < nRecords; i++, curr_addr_start += nCols + 2)
+  {
+    chilog(INFO, "Generating code for record %d / %d, pkey %d", i + 1, nRecords, pkey_n);
+    simple_insert_codegen_record(stmt, curr_values, curr_addr_start, nCols, base_reg, pkey_n);
+    for (int j = 0; j < nCols; j++)
+    {
+      curr_values = curr_values->next;
+    }
+  }
+}
+
+static int chidb_stmt_codegen_simple_insert(chidb_stmt *stmt, chisql_statement_t *sql_stmt)
+{
+  Insert_t *insert = sql_stmt->stmt.insert;
+  ChidbSchema schema;
+  get_schema(stmt->db, insert->table_name, &schema);
+  if (insert->col_names == NULL)
+  {
+    insert_set_all_cols(insert, &schema);
+  }
+  chilog(INFO, "insert for %s, %s", sql_stmt->text, sql_stmt->stmt.insert->table_name);
+  int root_npage;
+  int nCols;
+  int pkey_n;
+  int nValues;
+  if (chidb_stmt_validate_schema_exists(stmt, insert->table_name, &root_npage) != CHIDB_OK)
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  if (chidb_stmt_validate_insert_cols(stmt, sql_stmt, &nCols, &pkey_n) != CHIDB_OK)
+  {
+    return CHIDB_EINVALIDSQL;
+  }
+  chilog(INFO, "Pkey %d, ncols %d, root %d", pkey_n, nCols, root_npage);
+  StrList_t *col_names = insert->col_names;
+  Literal_t *values = insert->values;
+  enum data_type types[nCols];
+  for (int i = 0; i < nCols; i++, col_names = col_names->next)
+  {
+    chilog(INFO, "Col %s %d", col_names->str, table_col_type(stmt->db, insert->table_name, col_names->str));
+    types[i] = table_col_type(stmt->db, insert->table_name, col_names->str);
+  }
+  if (verify_insert_value_types(types, nCols, values, &nValues) != CHIDB_OK)
+  {
+    chilog(WARNING, "INVALIDATED VALUES");
+    return CHIDB_EINVALIDSQL;
+  }
+  col_names = insert->col_names;
+  chidb_dbm_op_t op_int = {Op_Integer, root_npage, 0, 0, NULL};
+  chilog(INFO, "Setting integer reg for root page: reg %d, int %d", 0, root_npage);
+  chidb_stmt_set_op(stmt, &op_int, 0);
+  chidb_dbm_op_t op_openwrite = {Op_OpenWrite, 0, 0, nCols, NULL};
+  chidb_stmt_set_op(stmt, &op_openwrite, 1);
+  simple_insert_codegen(stmt, sql_stmt, 2, nCols, nValues, 1, pkey_n);
+  int nRecords = nValues / nCols;
+  int halt_addr = 2 + ((nCols + 2) * nRecords);
+  chilog(INFO, "Setting halt in addr %d", halt_addr);
+  chidb_dbm_op_t op_halt = {Op_Halt, 0, 0, 0, NULL};
+  chidb_stmt_set_op(stmt, &op_halt, halt_addr);
   stmt->pc = 0;
   return CHIDB_OK;
 }

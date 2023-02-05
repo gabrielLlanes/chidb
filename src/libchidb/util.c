@@ -436,7 +436,7 @@ int table_col_type(chidb *db, char *table_name, char *col_name)
     {
         col = col->next;
     }
-    chilog(INFO, "Returning col type %d for %s", col->type, col_name);
+    // chilog(INFO, "Returning col type %d for %s", col->type, col_name);
     return col->type;
 }
 

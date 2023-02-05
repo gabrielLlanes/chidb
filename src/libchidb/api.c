@@ -69,7 +69,7 @@ static int realloc_schema(chidb *db, int n)
 
 int chidb_open(const char *file, chidb **db)
 {
-	chilog_setloglevel(CRITICAL);
+	chilog_setloglevel(INFO);
 	*db = malloc(sizeof(chidb));
 	if (*db == NULL)
 		return CHIDB_ENOMEM;
