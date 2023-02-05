@@ -88,7 +88,8 @@ int chidb_dbm_op_Noop(chidb_stmt *stmt, chidb_dbm_op_t *op)
 int chidb_dbm_op_OpenRead(chidb_stmt *stmt, chidb_dbm_op_t *op)
 {
     /* Your code goes here */
-    chilog(INFO, "OPEN READ root %d, in cursor %d", stmt->reg[op->p2].value.i, 0);
+    chilog(DEBUG, "OPEN READ root page %d, cursor number %d, with %d cols",
+           stmt->reg[op->p2].value.i, op->p1, op->p3);
     if (stmt->nCursors <= op->p1)
     {
         realloc_cur(stmt, op->p1 + 1);
@@ -166,7 +167,7 @@ int chidb_dbm_op_Seek(chidb_stmt *stmt, chidb_dbm_op_t *op)
     int try_seek = chidb_Cursor_seek(cursor, stmt->reg[op->p3].value.i);
     if (try_seek == CHIDB_ENOTFOUND)
     {
-        chilog(INFO, "Seek failed, jumping.");
+        chilog(DEBUG, "Seek failed, jumping to %d.", op->p2);
         stmt->pc = op->p2;
     }
     return CHIDB_OK;
@@ -257,6 +258,7 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
     chidb_dbm_cursor_t *cursor = stmt->cursors + op->p1;
     if (cursor->col_n <= op->p2)
     {
+        chilog(WARNING, "col_n %d col # %d", cursor->col_n, op->p2);
         return CHIDB_ECANTOPEN;
     }
     BTreeCell *cell;
@@ -287,7 +289,7 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         {
             reg->value.i = get4byte(ptr);
         }
-        chilog(INFO, "setting col %d, in reg %d", reg->value.i, op->p3);
+        chilog(DEBUG, "setting col %d, in reg %d", reg->value.i, op->p3);
     }
     else
     {
@@ -296,7 +298,7 @@ int chidb_dbm_op_Column(chidb_stmt *stmt, chidb_dbm_op_t *op)
         reg->value.s = malloc(str_size + 1);
         memcpy(reg->value.s, ptr, str_size);
         reg->value.s[str_size] = '\0';
-        chilog(INFO, "setting col %s, in reg %d", reg->value.s, op->p3);
+        chilog(DEBUG, "setting col %s, in reg %d", reg->value.s, op->p3);
     }
     return CHIDB_OK;
 }
@@ -367,14 +369,18 @@ int chidb_dbm_op_Null(chidb_stmt *stmt, chidb_dbm_op_t *op)
 static void logreg(chidb_stmt *stmt, int n)
 {
     chidb_dbm_register_t *reg = stmt->reg + n;
-    chilog(INFO, "REGISTER %d, %d type", n, reg->type);
+    chilog(DEBUG, "REGISTER %d, %d type", n, reg->type);
     if (reg->type == REG_INT32)
     {
-        chilog(INFO, "REG VALUE %d", reg->value.i);
+        chilog(DEBUG, "REG VALUE %d", reg->value.i);
     }
     else if (reg->type == REG_STRING)
     {
-        chilog(INFO, "REG VALUE %s", reg->value.s);
+        chilog(DEBUG, "REG VALUE %s", reg->value.s);
+    }
+    else if (reg->type == REG_NULL)
+    {
+        chilog(DEBUG, "REG VALUE NULL");
     }
 }
 
@@ -392,7 +398,7 @@ int chidb_dbm_op_MakeRecord(chidb_stmt *stmt, chidb_dbm_op_t *op)
 {
     /* Your code goes here */
     // create data
-    chilog(INFO, "Make record: %d %d %d %s", op->p1, op->p2, op->p3, op->p4);
+    chilog(DEBUG, "Make record: %d %d %d %s", op->p1, op->p2, op->p3, op->p4);
     uint8_t header_size = 1;
     uint32_t record_size = 1;
     uint32_t types[op->p2];
@@ -452,21 +458,24 @@ int chidb_dbm_op_MakeRecord(chidb_stmt *stmt, chidb_dbm_op_t *op)
             memcpy(data_ptr, curr_reg->value.s, len);
             data_ptr += len;
         }
-        // for (int k = )
-        chilog(INFO, "Trying to log reg %d", op->p1 + i);
         logreg(stmt, op->p1 + i);
     }
     if (op->p3 >= stmt->nReg)
     {
         realloc_reg(stmt, op->p3 + 1);
     }
-    chilog(INFO, "Now trying to set record in %d", op->p3);
     chidb_dbm_register_t *reg = stmt->reg + op->p3;
     reg->type = REG_BINARY;
     reg->value.bin.bytes = data;
     reg->value.bin.nbytes = record_size;
-    chilog(INFO, "Record made");
     return CHIDB_OK;
+}
+
+static int logRecord(int nCols)
+{
+    // for (int i = 0; i < nCols) {
+
+    // }
 }
 
 int chidb_dbm_op_Insert(chidb_stmt *stmt, chidb_dbm_op_t *op)
@@ -476,9 +485,9 @@ int chidb_dbm_op_Insert(chidb_stmt *stmt, chidb_dbm_op_t *op)
     chidb_key_t key = cursor->curr_key;
     chidb_dbm_register_t *r1 = stmt->reg + op->p2;
     chidb_dbm_register_t *r2 = stmt->reg + op->p3;
-    chilog(INFO, "Trying to insert now, key %d in root page %d, from data in reg %d.", r2->value.i, cursor->root_page_n, op->p2);
+    chilog(DEBUG, "Trying to insert now, key %d in root page %d, from data in reg %d.", r2->value.i, cursor->root_page_n, op->p2);
     int try_insert = chidb_Btree_insertInTable(cursor->bt, cursor->root_page_n, r2->value.i, r1->value.bin.bytes, r1->value.bin.nbytes);
-    chilog(INFO, "Inserted.");
+    chilog(DEBUG, "Inserted.");
     if (try_insert != CHIDB_OK)
     {
         return try_insert;

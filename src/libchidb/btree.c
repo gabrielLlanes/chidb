@@ -655,9 +655,7 @@ int chidb_Btree_insertCell(BTreeNode *btn, ncell_t ncell, BTreeCell *cell)
             new_cell_ptr -= cell_size;
             putVarint32(new_cell_ptr, record_size);
             putVarint32(new_cell_ptr + 4, cell->key);
-            // //chilog(INFO, "Hopefully memcpy doesnt segfault");
             memcpy(new_cell_ptr + 8, cell->fields.tableLeaf.data, record_size);
-            // chilog(INFO, "memcpy didn't segfault");
         }
         else if (type == PGTYPE_INDEX_INTERNAL)
         {
@@ -716,7 +714,7 @@ int chidb_Btree_find(BTree *bt, npage_t nroot, chidb_key_t key, uint8_t **data, 
     }
     uint8_t type = btn->type;
     // descending recursively down through the BTree
-    chilog(DEBUG, "btn %d: %d cells, page %d, right page %d, type %d. Searching for %d",
+    chilog(DEBUG, "BTree rooted at %d: %d cells, page %d, right page %d, type %d. Searching for %d",
            btn->page->npage, btn->n_cells, btn->page->npage, btn->right_page, btn->type, key);
     if (type == PGTYPE_TABLE_INTERNAL || type == PGTYPE_INDEX_INTERNAL)
     {

@@ -106,6 +106,10 @@ int chidb_Cursor_rewindNode(chidb_dbm_cursor_t *cursor, npage_t npage, int index
   BTreeNode *btn;
   BTreeCell curr_cell;
   chidb_Btree_getNodeByPage(cursor->bt, npage, &btn);
+  if (btn->n_cells == 0)
+  {
+    chilog(WARNING, "Cursor: Empty B Tree!");
+  }
   chidb_Btree_getCell(btn, 0, &curr_cell);
   chidb_Cursor_setPathNode(cursor, npage, 0, index);
   cursor->nNodes = index + 1;

@@ -65,11 +65,12 @@ static int realloc_schema(chidb *db, int n)
 		chilog(INFO, "Reallocating schema: %d.", n);
 		db->schema_list = realloc(db->schema_list, n * sizeof(ChidbSchema));
 	}
+	return CHIDB_OK;
 }
 
 int chidb_open(const char *file, chidb **db)
 {
-	chilog_setloglevel(INFO);
+	chilog_setloglevel(WARNING);
 	*db = malloc(sizeof(chidb));
 	if (*db == NULL)
 		return CHIDB_ENOMEM;
@@ -81,7 +82,6 @@ int chidb_open(const char *file, chidb **db)
 	(*db)->nSchema = 0;
 	chidb_dbm_cursor_t *cursor;
 	chidb_Cursor_open(&cursor, CURSOR_READ, (*db)->bt, 1, 5);
-	cursor_node_entry entry = cursor->node_entries[cursor->nNodes - 1];
 	chilog(INFO, "Cursor: %d type, key %d", cursor->tree_type, cursor->curr_key);
 	chidb_Cursor_rewind(cursor);
 	int nSchema = 0;
@@ -131,7 +131,6 @@ int chidb_open(const char *file, chidb **db)
 				chilog(INFO, "SCHEMA %d, TABLE %s: root %d, assoc %s, sql %s",
 							 nSchema, curr_schema.name, curr_schema.root_npage, curr_schema.assoc_table_name, curr_schema.sql);
 				Column_t *currcol = curr_schema.table->columns;
-				int cols = 1;
 				while (currcol != NULL)
 				{
 					currcol = currcol->next;

@@ -316,10 +316,8 @@ int chidb_tokenize(char *str, char ***tokens)
 int getRecordCol(uint8_t *data, int ncol, uint32_t *type, uint32_t *offset)
 {
     // chilog_setloglevel(INFO);
-    chilog(INFO, "Getting col %d", ncol);
     uint8_t *ptr = data;
     uint32_t offset_to_col = *data;
-    chilog(INFO, "Offset to header is %d", *data);
     ptr += 1;
     for (int i = 0; i < ncol; i++)
     {
@@ -327,7 +325,6 @@ int getRecordCol(uint8_t *data, int ncol, uint32_t *type, uint32_t *offset)
         uint32_t col_size;
         if (type_first_byte >= 128)
         {
-            chilog(INFO, "TEXT detected");
             uint32_t header_val;
             getVarint32(ptr, &header_val);
             col_size = (header_val - 13) / 2;
@@ -335,7 +332,6 @@ int getRecordCol(uint8_t *data, int ncol, uint32_t *type, uint32_t *offset)
         }
         else
         {
-            chilog(INFO, "Integer detected");
             col_size = type_first_byte;
             ptr += 1;
         }
@@ -475,7 +471,6 @@ int get_schema(chidb *db, char *name, ChidbSchema *schema)
 
 int is_pkey(chidb *db, char *table_name, char *col_name)
 {
-    chilog(INFO, "In pkey testing col %s", col_name);
     int i = schema_exists(db, table_name);
     if (i == 0)
     {
@@ -493,10 +488,8 @@ int is_pkey(chidb *db, char *table_name, char *col_name)
     {
         col = col->next;
     }
-    chilog(INFO, "In pkey testing col %s, %d after loop", col_name, k);
     if (col->constraints != NULL && col->constraints->t == CONS_PRIMARY_KEY)
     {
-        chilog(INFO, "is primary key");
         return 1;
     }
     else
